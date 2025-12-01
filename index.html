@@ -22,16 +22,55 @@
             --sidebar-width: 320px;
             --header-height: 60px;
         }
-        #editor-container {
+        
+        /* Flex layout for resizeable sidebar */
+        #main-wrapper {
+            display: flex;
             height: calc(100vh - var(--header-height));
-            width: calc(100% - var(--sidebar-width));
-            overflow-y: auto;
+            overflow: hidden;
         }
+
         #sidebar {
             width: var(--sidebar-width);
-            height: calc(100vh - var(--header-height));
+            flex-shrink: 0;
+            height: 100%;
             overflow-y: auto;
+            background-color: #f9fafb; /* gray-50 */
+            border-right: 1px solid #e5e7eb; /* gray-200 */
         }
+
+        #resizer {
+            width: 8px; /* Made wider for easier grabbing */
+            cursor: col-resize;
+            background-color: #e5e7eb;
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+            z-index: 20;
+            border-left: 1px solid #d1d5db;
+            border-right: 1px solid #d1d5db;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #resizer:hover, #resizer.resizing {
+            background-color: #93c5fd; /* blue-300 */
+        }
+        /* Optional grip lines */
+        #resizer::after {
+            content: "|||";
+            color: #9ca3af;
+            font-size: 10px;
+            transform: rotate(90deg);
+            pointer-events: none;
+        }
+
+        #editor-container {
+            flex-grow: 1;
+            height: 100%;
+            overflow-y: auto;
+            min-width: 0; /* Prevent flex items from overflowing */
+        }
+
         #editor {
             max-width: 800px;
             min-height: 100%;
@@ -45,6 +84,7 @@
             border-radius: 0.5rem;
             /* Ensure canvas can capture all content */
             overflow: visible; 
+            margin: 0 auto; /* Center in container */
         }
         #editor:focus {
             box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.5); /* blue-600 */
@@ -185,6 +225,9 @@
             color: #52525b; /* zinc-600 */
             border-bottom: 3px solid transparent;
             cursor: pointer;
+            white-space: nowrap; /* Prevent tab text breaking */
+            flex-grow: 1; /* Allow tabs to grow */
+            text-align: center;
         }
         .tab-button.active {
             color: #1e40af; /* blue-800 */
@@ -244,7 +287,7 @@
 <body class="bg-gray-100 text-gray-900 flex flex-col h-full">
 
     <!-- Header -->
-    <header style="height: var(--header-height);" class="bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm">
+    <header style="height: var(--header-height);" class="bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-30 relative">
         <h1 class="text-xl font-bold text-gray-800">SciWrite AI</h1>
         <div class="flex items-center gap-4">
             <button id="import-button" class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors flex items-center gap-1">
@@ -277,11 +320,11 @@
         </div>
     </header>
 
-    <div class="flex flex-1 overflow-hidden">
+    <div id="main-wrapper">
         <!-- Left Sidebar -->
-        <aside id="sidebar" class="bg-gray-50 border-r border-gray-200 flex flex-col">
-            <!-- Tab Navigation -->
-            <div class="flex border-b border-gray-200 px-2">
+        <aside id="sidebar">
+            <!-- Tab Navigation - Added flex-wrap for overflow protection -->
+            <div class="flex flex-wrap border-b border-gray-200 px-2">
                 <button class="tab-button active" data-tab="tab-content">Content</button>
                 <button class="tab-button" data-tab="tab-chat">Chat</button>
                 <button class="tab-button" data-tab="tab-refs">References</button>
@@ -410,8 +453,11 @@
             </div>
         </aside>
 
+        <!-- Resizer Handle -->
+        <div id="resizer"></div>
+
         <!-- Main Editor Area -->
-        <main id="editor-container" class="flex-1 bg-gray-200 p-4 pt-6">
+        <main id="editor-container" class="bg-gray-200 p-4 pt-6">
             <div id="editor-wrapper" class="relative">
                 <!-- Formatting Toolbar -->
                 <div id="editor-toolbar">
@@ -518,6 +564,10 @@
             const importButton = document.getElementById('import-button');
             const fileInput = document.getElementById('file-input');
             const imageInput = document.getElementById('image-input');
+            
+            // Sidebar Resizer Elements
+            const sidebar = document.getElementById('sidebar');
+            const resizer = document.getElementById('resizer');
             
             // Modal Selectors
             const editRefModal = document.getElementById('edit-ref-modal');
@@ -794,6 +844,35 @@
                 });
             }
 
+            // --- Sidebar Resizer Logic ---
+            if(resizer && sidebar) {
+                let isResizing = false;
+
+                resizer.addEventListener('mousedown', (e) => {
+                    isResizing = true;
+                    e.preventDefault(); // Prevent text selection
+                    document.body.style.cursor = 'col-resize';
+                    resizer.classList.add('resizing');
+                });
+
+                document.addEventListener('mousemove', (e) => {
+                    if (!isResizing) return;
+                    e.preventDefault(); // Prevent text selection while dragging
+                    
+                    // Limit width between 150px and 600px
+                    const newWidth = Math.max(150, Math.min(600, e.clientX));
+                    document.documentElement.style.setProperty('--sidebar-width', `${newWidth}px`);
+                });
+
+                document.addEventListener('mouseup', () => {
+                    if (isResizing) {
+                        isResizing = false;
+                        document.body.style.cursor = 'default';
+                        resizer.classList.remove('resizing');
+                    }
+                });
+            }
+
             // Handle both buttons and selects in toolbar
             if(editorToolbar) {
                 editorToolbar.addEventListener('click', (e) => {
@@ -805,9 +884,29 @@
                         handleContinueWriting();
                         return;
                     }
+                    
+                    // Improved Paragraph Formatting Logic
+                    if (command === 'formatBlock' && value === 'P') {
+                        // 1. Force to paragraph block
+                        document.execCommand('formatBlock', false, 'P');
+                        // 2. Remove lingering inline styles (like bold/size from headings)
+                        document.execCommand('removeFormat');
+                        
+                        // 3. Ensure we focus back
+                        editor.focus();
+                        updateToolbarState();
+                        updateTOC(); // Explicitly refresh TOC to remove the heading immediately
+                        return;
+                    }
+
                     document.execCommand(command, false, value);
                     editor.focus();
                     updateToolbarState();
+                    
+                    // If we just created a heading, update the TOC immediately
+                    if (command === 'formatBlock') {
+                        updateTOC();
+                    }
                 });
 
                 editorToolbar.addEventListener('change', (e) => {
