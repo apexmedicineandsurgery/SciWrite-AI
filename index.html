@@ -1,0 +1,1752 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SciWrite - AI-Assisted Scientific Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- PDF & Word Export Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://unpkg.com/html-doc-x/dist/html-doc-x.js"></script>
+    <!-- Word Import Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    
+    <style>
+        /* Basic styles for a pleasant writing experience */
+        body, html {
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            --sidebar-width: 320px;
+            --header-height: 60px;
+        }
+        #editor-container {
+            height: calc(100vh - var(--header-height));
+            width: calc(100% - var(--sidebar-width));
+            overflow-y: auto;
+        }
+        #sidebar {
+            width: var(--sidebar-width);
+            height: calc(100vh - var(--header-height));
+            overflow-y: auto;
+        }
+        #editor {
+            max-width: 800px;
+            min-height: 100%;
+            padding: 2rem 2.5rem 10rem 2.5rem; /* Extra padding at bottom */
+            outline: none;
+            font-size: 1.1rem;
+            line-height: 1.7;
+            color: #1a1a1a;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            background: white;
+            border-radius: 0.5rem;
+            /* Ensure canvas can capture all content */
+            overflow: visible; 
+        }
+        #editor:focus {
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.5); /* blue-600 */
+        }
+        
+        #editor h1 { font-size: 2.25rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 1rem; border-bottom: 2px solid #e5e7eb; padding-bottom: 0.5rem; }
+        #editor h2 { font-size: 1.875rem; font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.75rem; }
+        #editor h3 { font-size: 1.5rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; }
+        #editor p { margin-bottom: 1rem; }
+        #editor ul { 
+            list-style-type: disc; 
+            list-style-position: inside; 
+            margin-left: 1.5rem; 
+            margin-bottom: 1rem; 
+        }
+        #editor ol { 
+            list-style-type: decimal; 
+            list-style-position: inside; 
+            margin-left: 1.5rem; 
+            margin-bottom: 1rem; 
+        }
+        #editor li { margin-bottom: 0.5rem; }
+
+        /* Citation Marker Styling */
+        .citation-marker {
+            background-color: #e0f2fe; /* light-blue-100 */
+            color: #0c4a6e; /* light-blue-900 */
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 1px 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            display: inline-block;
+            line-height: 1;
+            margin: 0 2px;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+        .citation-marker:hover {
+            background-color: #bae6fd; /* light-blue-200 */
+            transform: translateY(-1px);
+        }
+
+        /* AI Popup Menu */
+        #ai-popup {
+            position: absolute;
+            display: none;
+            background: #27272a; /* zinc-800 */
+            color: white;
+            border-radius: 8px;
+            padding: 8px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            z-index: 50;
+            display: none;
+            gap: 4px;
+        }
+        #ai-popup button {
+            background: transparent;
+            border: none;
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        #ai-popup button:hover {
+            background: #3f3f46; /* zinc-700 */
+        }
+        
+        /* Message Box */
+        #message-box {
+            position: fixed;
+            bottom: -100px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            font-size: 0.9rem;
+            font-weight: 500;
+            z-index: 100;
+            transition: bottom 0.5s ease-in-out;
+        }
+        
+        /* Formatting Toolbar */
+        #editor-toolbar {
+            background: #f4f4f5; /* zinc-100 */
+            padding: 8px;
+            border-radius: 8px 8px 0 0;
+            border-bottom: 1px solid #e4e4e7; /* zinc-200 */
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+        #editor-toolbar button, #editor-toolbar select {
+            background: #ffffff;
+            border: 1px solid #d4d4d8; /* zinc-300 */
+            border-radius: 6px;
+            padding: 6px 10px;
+            margin: 0;
+            cursor: pointer;
+            font-size: 0.875rem;
+            line-height: 1;
+            transition: all 0.1s ease;
+            height: 32px; /* Fixed height for alignment */
+        }
+        #editor-toolbar button:hover, #editor-toolbar select:hover {
+            background: #f4f4f5; /* zinc-100 */
+            border-color: #a1a1aa; /* zinc-400 */
+        }
+        #editor-toolbar button.active {
+            background: #dbeafe; /* blue-100 */
+            border-color: #60a5fa; /* blue-400 */
+            color: #1d4ed8; /* blue-700 */
+            font-weight: 600;
+        }
+        #editor-toolbar select {
+            padding-right: 24px; /* Space for arrow */
+        }
+        #editor-toolbar button[data-command="formatBlock"] {
+            min-width: 40px;
+        }
+        #editor-toolbar button[title="Continue Writing"] {
+            font-size: 1.1rem;
+        }
+
+        /* Sidebar Tabs */
+        .tab-button {
+            border-radius: 6px 6px 0 0;
+            padding: 10px 16px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #52525b; /* zinc-600 */
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+        }
+        .tab-button.active {
+            color: #1e40af; /* blue-800 */
+            border-bottom-color: #1e40af; /* blue-800 */
+        }
+        
+        /* Dropdown Menu */
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            right: 0;
+            background-color: #f1f1f1;
+            min-width: 180px;
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+            z-index: 50; /* Increased from 1 to 50 to float above toolbar (which is 10) */
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .dropdown-content button {
+            color: black;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+            width: 100%;
+            text-align: left;
+            background: #f9f9f9;
+            border: none;
+            font-size: 0.875rem;
+            height: auto; /* Reset height for dropdown items */
+        }
+        .dropdown-content button:hover {background-color: #ddd;}
+        .dropdown:hover .dropdown-content {display: block;}
+        .dropdown:hover .dropbtn {background-color: #3e8e41;}
+
+        /* Bibliography Section */
+        #bibliography-section {
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 2px solid #e5e7eb;
+        }
+        #bibliography-section h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        #bibliography-section li {
+            margin-bottom: 0.5rem;
+            padding-left: 0.5rem;
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 text-gray-900 flex flex-col h-full">
+
+    <!-- Header -->
+    <header style="height: var(--header-height);" class="bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm">
+        <h1 class="text-xl font-bold text-gray-800">SciWrite AI</h1>
+        <div class="flex items-center gap-4">
+            <button id="import-button" class="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                Import
+            </button>
+            <input type="file" id="file-input" class="hidden" accept=".docx,.txt,.html,.md,.json">
+            <!-- New Hidden Input for Images -->
+            <input type="file" id="image-input" class="hidden" accept="image/png, image/jpeg, image/gif, image/webp">
+            
+            <button id="save-button" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                Save to Browser
+            </button>
+            <!-- Export Dropdown -->
+            <div class="dropdown">
+                <button class="bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors flex items-center gap-2">
+                    Export
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </button>
+                <div class="dropdown-content">
+                    <button id="export-json-button" class="font-bold bg-blue-50 text-blue-800 hover:bg-blue-100">Save Project (.json)</button>
+                    <hr class="border-gray-200">
+                    <button id="export-word-button">Export as Word (.docx)</button>
+                    <button id="export-pdf-button">Export as PDF (.pdf)</button>
+                    <button id="export-txt-button">Export as Text (.txt)</button>
+                    <button id="export-md-button">Export as Markdown (.md)</button>
+                    <button id="export-html-button">Export as HTML (.html)</button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Left Sidebar -->
+        <aside id="sidebar" class="bg-gray-50 border-r border-gray-200 flex flex-col">
+            <!-- Tab Navigation -->
+            <div class="flex border-b border-gray-200 px-2">
+                <button class="tab-button active" data-tab="tab-content">Content</button>
+                <button class="tab-button" data-tab="tab-chat">Chat</button>
+                <button class="tab-button" data-tab="tab-refs">References</button>
+                <button class="tab-button" data-tab="tab-settings">Settings</button>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-4">
+                <!-- Tab: Content -->
+                <div id="tab-content" class="tab-panel active space-y-4">
+                    <h3 class="font-semibold text-lg text-gray-700 mb-3">Table of Contents</h3>
+                    <nav id="toc" class="space-y-2">
+                        <!-- TOC links will be injected here -->
+                    </nav>
+                </div>
+
+                <!-- Tab: Chat -->
+                <div id="tab-chat" class="tab-panel hidden h-full flex flex-col">
+                    <h3 class="font-semibold text-lg text-gray-700 mb-3">Context-Aware Chat</h3>
+                    <div id="chat-messages" class="flex-1 overflow-y-auto p-3 bg-white border border-gray-200 rounded-lg mb-3 min-h-[200px]">
+                        <!-- Chat messages will appear here -->
+                        <div class="text-gray-500 text-sm italic">Ask a question about your document...</div>
+                    </div>
+                    <div class="flex">
+                        <input type="text" id="chat-input" class="flex-1 p-2 border border-gray-300 rounded-l-md shadow-sm focus:ring-blue-500 focus:border-blue-500" placeholder="Type your message...">
+                        <button id="chat-send" class="bg-blue-600 text-white px-4 rounded-r-md hover:bg-blue-700 transition-colors">Send</button>
+                    </div>
+                </div>
+
+                <!-- Tab: References -->
+                <div id="tab-refs" class="tab-panel hidden">
+                    <h3 class="font-semibold text-lg text-gray-700 mb-3">Reference Manager</h3>
+                    <div class="space-y-4">
+                        <!-- Style Selector -->
+                        <div>
+                            <label for="citation-style" class="block text-sm font-medium text-gray-600 mb-1">Citation Style</label>
+                            <select id="citation-style" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white">
+                                <optgroup label="Numbered Styles">
+                                    <option value="ieee">IEEE (Numbered [1])</option>
+                                    <option value="vancouver">Vancouver (Numbered (1))</option>
+                                    <option value="nlm">NLM (Numbered [1])</option>
+                                    <option value="ama">AMA (Superscript ¹)</option>
+                                </optgroup>
+                                <optgroup label="Author-Date Styles">
+                                    <option value="apa">APA (Author, Year)</option>
+                                    <option value="harvard">Harvard (Author Year)</option>
+                                    <option value="chicago">Chicago (Author Year)</option>
+                                    <option value="mla">MLA (Author)</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label for="new-ref-text" class="block text-sm font-medium text-gray-600 mb-1">Paste Citation</label>
+                            <textarea id="new-ref-text" rows="3" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" placeholder="Paste Plain Text, BibTeX, or NBIB content here..."></textarea>
+                            <button id="add-ref-button" class="mt-2 w-full bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors">
+                                Add Citation
+                            </button>
+                        </div>
+                        <hr>
+                        <div>
+                            <h4 class="text-sm font-semibold text-gray-600 mb-2">Stored References</h4>
+                            <ul id="ref-list" class="space-y-2 border-t border-b border-gray-200 py-2 max-h-[300px] overflow-y-auto">
+                                <!-- Reference list will be injected here -->
+                            </ul>
+                        </div>
+                        <hr>
+                        <button id="generate-ref-list-button" class="mt-2 w-full bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
+                            Update/Generate Bibliography
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Tab: Settings -->
+                <div id="tab-settings" class="tab-panel hidden">
+                    <h3 class="font-semibold text-lg text-gray-700 mb-3">Settings</h3>
+                    <div class="space-y-4">
+                        <!-- AI Provider Selection -->
+                        <div>
+                            <label for="ai-provider" class="block text-sm font-medium text-gray-600 mb-1">AI Provider</label>
+                            <select id="ai-provider" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white">
+                                <option value="ollama">Local (Ollama)</option>
+                                <option value="gemini">Cloud (Google Gemini)</option>
+                            </select>
+                        </div>
+
+                        <!-- Ollama Specific Settings -->
+                        <div id="ollama-settings">
+                            <div class="mb-4">
+                                <label for="ollama-url" class="block text-sm font-medium text-gray-600 mb-1">Ollama API Base URL</label>
+                                <input type="text" id="ollama-url" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" placeholder="http://localhost:11434">
+                            </div>
+                            <div class="mb-4">
+                                <label for="ollama-model" class="block text-sm font-medium text-gray-600 mb-1">Ollama Model</label>
+                                <select id="ollama-model" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white">
+                                    <option value="">Loading models...</option>
+                                </select>
+                            </div>
+
+                            <!-- Setup Instructions -->
+                            <div class="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs text-gray-700">
+                                <h4 class="font-bold mb-2 text-gray-800">Setup Instructions</h4>
+                                <ul class="list-disc pl-4 space-y-2">
+                                    <li><strong>Install:</strong> Download from <a href="https://ollama.com" target="_blank" class="text-blue-600 underline">ollama.com</a>.</li>
+                                    <li><strong>Download Model:</strong> Open terminal and run: <code class="bg-gray-200 px-1 rounded">ollama pull llama3</code></li>
+                                    <li><strong>Enable Access (CORS):</strong> By default, browsers block local connections. You must set the <code>OLLAMA_ORIGINS</code> variable.</li>
+                                    <li><strong>Mac/Linux Command:</strong><br>
+                                        <code class="block bg-gray-800 text-white p-2 rounded mt-1 overflow-x-auto select-all">OLLAMA_ORIGINS="*" ollama serve</code>
+                                    </li>
+                                    <li><strong>Windows (PowerShell):</strong><br>
+                                        <code class="block bg-gray-800 text-white p-2 rounded mt-1 overflow-x-auto select-all">$env:OLLAMA_ORIGINS="*"; ollama serve</code>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Gemini Specific Settings -->
+                        <div id="gemini-settings" class="hidden">
+                            <div>
+                                <label for="gemini-key" class="block text-sm font-medium text-gray-600 mb-1">Gemini API Key</label>
+                                <input type="password" id="gemini-key" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" placeholder="Enter your Google AI Studio Key">
+                                <p class="text-xs text-gray-500 mt-1">Get a key from <a href="https://aistudio.google.com/" target="_blank" class="text-blue-600 hover:underline">Google AI Studio</a></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Editor Area -->
+        <main id="editor-container" class="flex-1 bg-gray-200 p-4 pt-6">
+            <div id="editor-wrapper" class="relative">
+                <!-- Formatting Toolbar -->
+                <div id="editor-toolbar">
+                    <select title="Font Family" data-command="fontName" class="w-32">
+                        <option value="Inter" selected>Inter</option>
+                        <option value="Arial">Arial</option>
+                        <option value="Georgia">Georgia</option>
+                        <option value="Times New Roman">Times New Roman</option>
+                        <option value="Courier New">Courier New</option>
+                    </select>
+                    <select title="Font Size" data-command="fontSize" class="w-24">
+                        <option value="1">8 pt</option>
+                        <option value="2">10 pt</option>
+                        <option value="3" selected>12 pt</option>
+                        <option value="4">14 pt</option>
+                        <option value="5">18 pt</option>
+                        <option value="6">24 pt</option>
+                        <option value="7">36 pt</option>
+                    </select>
+                    <div class="w-px h-6 bg-gray-300 mx-1"></div>
+                    <button title="Bold" data-command="bold"><b>B</b></button>
+                    <button title="Italic" data-command="italic"><i>I</i></button>
+                    <button title="Underline" data-command="underline"><u>U</u></button>
+                    <div class="w-px h-6 bg-gray-300 mx-1"></div>
+                    <button title="Heading 1" data-command="formatBlock" data-value="H1">H1</button>
+                    <button title="Heading 2" data-command="formatBlock" data-value="H2">H2</button>
+                    <button title="Heading 3" data-command="formatBlock" data-value="H3">H3</button>
+                    <button title="Paragraph" data-command="formatBlock" data-value="P">P</button>
+                    <div class="w-px h-6 bg-gray-300 mx-1"></div>
+                    <button title="Bulleted List" data-command="insertUnorderedList" title="Bulleted List">&#8226;</button>
+                    <button title="Numbered List" data-command="insertOrderedList" title="Numbered List">1.</button>
+                    <button title="Insert Image" id="insert-image-btn" class="text-gray-600" title="Insert Image">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    </button>
+                    <div class="flex-1"></div>
+                    <button title="Continue Writing" data-command="continue" class="text-blue-600" title="Continue Writing">&#10024;</button>
+                </div>
+                <!-- Editable Content -->
+                <div id="editor" contenteditable="true" spellcheck="true" class="bg-white rounded-b-lg">
+                </div>
+            </div>
+            <!-- Word Count -->
+            <div id="word-count" class="text-sm text-gray-500 text-right pr-2 pt-2">Word count: 0</div>
+        </main>
+    </div>
+
+    <!-- AI Action Popup -->
+    <div id="ai-popup" class="flex">
+        <button data-action="rewrite">Rewrite</button>
+        <button data-action="expand">Expand</button>
+        <button data-action="summarize">Summarize</button>
+        <button data-action="fix">Fix Grammar</button>
+    </div>
+
+    <!-- Message Box -->
+    <div id="message-box" class="bg-gray-800 text-white"></div>
+
+    <!-- Edit Reference Modal -->
+    <div id="edit-ref-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 class="text-lg font-bold mb-4 text-gray-800">Edit Reference</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Author / Short Title</label>
+                    <input type="text" id="edit-ref-author" class="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <p class="text-xs text-gray-500">Used for in-text citations (e.g., "Smith" or "Google")</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                    <input type="text" id="edit-ref-year" class="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Full Citation Text</label>
+                    <textarea id="edit-ref-text" rows="4" class="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"></textarea>
+                </div>
+                <div class="flex justify-end gap-2 mt-4">
+                    <button id="cancel-edit-ref" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md">Cancel</button>
+                    <button id="save-edit-ref" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-confirm-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm">
+            <h3 class="text-lg font-bold mb-2 text-gray-800">Delete Reference?</h3>
+            <p class="text-gray-600 mb-6 text-sm">Are you sure you want to delete this reference? This cannot be undone.</p>
+            <div class="flex justify-end gap-2">
+                <button id="cancel-delete-ref" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md font-medium text-sm">Cancel</button>
+                <button id="confirm-delete-ref" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-medium text-sm">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Element Selectors ---
+            const editor = document.getElementById('editor');
+            const toc = document.getElementById('toc');
+            const aiPopup = document.getElementById('ai-popup');
+            const messageBox = document.getElementById('message-box');
+            const saveButton = document.getElementById('save-button');
+            const importButton = document.getElementById('import-button');
+            const fileInput = document.getElementById('file-input');
+            const imageInput = document.getElementById('image-input');
+            
+            // Modal Selectors
+            const editRefModal = document.getElementById('edit-ref-modal');
+            const editRefAuthor = document.getElementById('edit-ref-author');
+            const editRefYear = document.getElementById('edit-ref-year');
+            const editRefText = document.getElementById('edit-ref-text');
+            const cancelEditRefBtn = document.getElementById('cancel-edit-ref');
+            const saveEditRefBtn = document.getElementById('save-edit-ref');
+
+            // Delete Modal Selectors
+            const deleteConfirmModal = document.getElementById('delete-confirm-modal');
+            const cancelDeleteRefBtn = document.getElementById('cancel-delete-ref');
+            const confirmDeleteRefBtn = document.getElementById('confirm-delete-ref');
+            
+            // Settings Selectors
+            const aiProviderSelect = document.getElementById('ai-provider');
+            const ollamaSettingsDiv = document.getElementById('ollama-settings');
+            const geminiSettingsDiv = document.getElementById('gemini-settings');
+            const ollamaUrlInput = document.getElementById('ollama-url');
+            const ollamaModelInput = document.getElementById('ollama-model');
+            const geminiKeyInput = document.getElementById('gemini-key');
+
+            const newRefTextInput = document.getElementById('new-ref-text');
+            const addRefButton = document.getElementById('add-ref-button');
+            const refList = document.getElementById('ref-list');
+            const generateRefListButton = document.getElementById('generate-ref-list-button');
+            const citationStyleSelect = document.getElementById('citation-style');
+            const editorToolbar = document.getElementById('editor-toolbar');
+            const wordCountEl = document.getElementById('word-count');
+            const chatInput = document.getElementById('chat-input');
+            const chatSend = document.getElementById('chat-send');
+            const chatMessages = document.getElementById('chat-messages');
+            const tabs = document.querySelectorAll('.tab-button');
+            const tabPanels = document.querySelectorAll('.tab-panel');
+            const exportWordButton = document.getElementById('export-word-button');
+            const exportPdfButton = document.getElementById('export-pdf-button');
+            const exportTxtButton = document.getElementById('export-txt-button');
+            const exportMdButton = document.getElementById('export-md-button');
+            const exportHtmlButton = document.getElementById('export-html-button');
+            const exportJsonButton = document.getElementById('export-json-button');
+            const insertImageBtn = document.getElementById('insert-image-btn');
+
+            // --- State Variables ---
+            let currentSelectionRange = null;
+            let isPristine = false; 
+            let references = []; 
+            let editingRefId = null; // Track which ref is being edited
+            let deletingRefId = null; // Track which ref is being deleted
+            
+            let settings = {
+                provider: localStorage.getItem('ai-provider') || 'ollama',
+                url: localStorage.getItem('ollama-url') || 'http://localhost:11434',
+                model: localStorage.getItem('ollama-model') || 'llama3',
+                geminiKey: localStorage.getItem('gemini-key') || '',
+                citationStyle: localStorage.getItem('citation-style') || 'ieee'
+            };
+            
+            // --- Templates ---
+            const articleTemplate = `<h1>Article Title</h1><h2>Abstract</h2><p>Your abstract goes here...</p><h2>Introduction</h2><p>Start your introduction...</p><h2>Methods</h2><p>Describe your methods...</p><h2>Results</h2><p>Present your results...</p><h2>Discussion</h2><p>Discuss your findings...</p><h2>Conclusion</h2><p>Conclude your paper...</p>`;
+            
+            // --- Initialization ---
+            const { jsPDF } = window.jspdf;
+            
+            // Initial UI Setup based on Settings
+            if (aiProviderSelect) aiProviderSelect.value = settings.provider;
+            updateSettingsUI();
+            
+            if (ollamaUrlInput) ollamaUrlInput.value = settings.url;
+            if (geminiKeyInput) geminiKeyInput.value = settings.geminiKey;
+            if (citationStyleSelect) citationStyleSelect.value = settings.citationStyle;
+
+            loadContent();
+            loadReferences();
+            if (settings.provider === 'ollama') loadOllamaModels();
+
+            updateTOC();
+            updateWordCount();
+            
+            // --- Event Listeners ---
+            
+            editor.addEventListener('input', () => {
+                isPristine = false; 
+                updateTOC();
+                updateWordCount();
+                updateToolbarState();
+            });
+            
+            editor.addEventListener('mouseup', handleTextSelection);
+            editor.addEventListener('keyup', handleTextSelection);
+            editor.addEventListener('selectionchange', updateToolbarState);
+
+            document.addEventListener('mousedown', (e) => {
+                if (aiPopup && !aiPopup.contains(e.target)) {
+                    aiPopup.style.display = 'none';
+                }
+                if (e.target.classList.contains('citation-marker')) {
+                    const refId = e.target.dataset.refInternalId;
+                    const ref = references.find(r => r.id == refId);
+                    if (ref) {
+                        showMessage(ref.text, true, 5000);
+                    }
+                }
+            });
+
+            if(saveButton) saveButton.addEventListener('click', saveContent);
+            
+            // Import Logic
+            if(importButton) {
+                importButton.addEventListener('click', () => {
+                    fileInput.click();
+                });
+            }
+            
+            if(fileInput) fileInput.addEventListener('change', handleFileImport);
+
+            // Image Insert Logic
+            if(insertImageBtn) {
+                insertImageBtn.addEventListener('click', () => {
+                    imageInput.click();
+                });
+            }
+
+            if(imageInput) {
+                imageInput.addEventListener('change', (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        const img = document.createElement('img');
+                        img.src = event.target.result;
+                        img.style.maxWidth = '100%';
+                        img.style.marginTop = '1rem';
+                        img.style.marginBottom = '1rem';
+                        img.className = 'rounded-md shadow-sm'; // Add some basic styling
+
+                        editor.focus();
+                        
+                        // Try to restore selection or append
+                        if (currentSelectionRange) {
+                            currentSelectionRange.deleteContents();
+                            currentSelectionRange.insertNode(img);
+                            
+                            // Move cursor after image
+                            const newRange = document.createRange();
+                            newRange.setStartAfter(img);
+                            newRange.setEndAfter(img);
+                            const sel = window.getSelection();
+                            sel.removeAllRanges();
+                            sel.addRange(newRange);
+                        } else {
+                            editor.appendChild(img);
+                        }
+                        
+                        isPristine = false;
+                        imageInput.value = ''; // Reset
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            if(exportWordButton) exportWordButton.addEventListener('click', exportAsWord);
+            if(exportPdfButton) exportPdfButton.addEventListener('click', exportAsPdf);
+            if(exportTxtButton) exportTxtButton.addEventListener('click', exportAsTxt);
+            if(exportMdButton) exportMdButton.addEventListener('click', exportAsMd);
+            if(exportHtmlButton) exportHtmlButton.addEventListener('click', exportAsHtml);
+            if(exportJsonButton) exportJsonButton.addEventListener('click', exportAsJson);
+
+            if(aiPopup) {
+                aiPopup.addEventListener('click', (e) => {
+                    if (e.target.tagName === 'BUTTON') {
+                        const action = e.target.dataset.action;
+                        const selectedText = window.getSelection().toString();
+                        callAI(selectedText, action);
+                        aiPopup.style.display = 'none';
+                    }
+                });
+            }
+            
+            // Settings Listeners
+            if(aiProviderSelect) {
+                aiProviderSelect.addEventListener('change', () => {
+                    settings.provider = aiProviderSelect.value;
+                    localStorage.setItem('ai-provider', settings.provider);
+                    updateSettingsUI();
+                    if (settings.provider === 'ollama') loadOllamaModels();
+                });
+            }
+
+            if(ollamaUrlInput) {
+                ollamaUrlInput.addEventListener('change', () => {
+                    settings.url = ollamaUrlInput.value;
+                    localStorage.setItem('ollama-url', settings.url);
+                    if (settings.provider === 'ollama') {
+                        showMessage("Ollama URL updated. Reloading models...", false);
+                        loadOllamaModels();
+                    }
+                });
+            }
+            
+            if(ollamaModelInput) {
+                ollamaModelInput.addEventListener('change', () => {
+                    settings.model = ollamaModelInput.value;
+                    localStorage.setItem('ollama-model', settings.model);
+                });
+            }
+
+            if(geminiKeyInput) {
+                geminiKeyInput.addEventListener('change', () => {
+                    settings.geminiKey = geminiKeyInput.value;
+                    localStorage.setItem('gemini-key', settings.geminiKey);
+                    showMessage("Gemini API Key saved.", false);
+                });
+            }
+            
+            if(citationStyleSelect) {
+                citationStyleSelect.addEventListener('change', () => {
+                    settings.citationStyle = citationStyleSelect.value;
+                    localStorage.setItem('citation-style', settings.citationStyle);
+                    showMessage("Citation style changed. Click 'Update Bibliography' to apply changes.", true);
+                });
+            }
+
+            if(addRefButton) addRefButton.addEventListener('click', addReference);
+            if(generateRefListButton) generateRefListButton.addEventListener('click', generateReferenceList);
+
+            // --- Modal Listeners ---
+            if(cancelEditRefBtn) {
+                cancelEditRefBtn.addEventListener('click', () => {
+                    editRefModal.classList.add('hidden');
+                    editingRefId = null;
+                });
+            }
+
+            if(saveEditRefBtn) {
+                saveEditRefBtn.addEventListener('click', saveEditedReference);
+            }
+
+            if(cancelDeleteRefBtn) {
+                cancelDeleteRefBtn.addEventListener('click', () => {
+                    deleteConfirmModal.classList.add('hidden');
+                    deletingRefId = null;
+                });
+            }
+
+            if(confirmDeleteRefBtn) {
+                confirmDeleteRefBtn.addEventListener('click', confirmDeleteReference);
+            }
+
+            // --- Reference List Event Delegation (Robust Click Handling) ---
+            if (refList) {
+                refList.addEventListener('click', (e) => {
+                    // Handle Delete
+                    const deleteBtn = e.target.closest('.delete-ref-btn');
+                    if (deleteBtn) {
+                        promptDeleteReference(deleteBtn.dataset.id);
+                        return;
+                    }
+
+                    // Handle Edit
+                    const editBtn = e.target.closest('.edit-ref-btn');
+                    if (editBtn) {
+                        openEditModal(editBtn.dataset.id);
+                        return;
+                    }
+
+                    // Handle Insert
+                    const insertBtn = e.target.closest('.insert-ref-btn');
+                    if (insertBtn) {
+                        editor.focus();
+                        insertCitationMarker(insertBtn.dataset.id);
+                        return;
+                    }
+                });
+            }
+
+            // Handle both buttons and selects in toolbar
+            if(editorToolbar) {
+                editorToolbar.addEventListener('click', (e) => {
+                    const button = e.target.closest('button');
+                    if (!button) return;
+                    const command = button.dataset.command;
+                    const value = button.dataset.value;
+                    if (command === 'continue') {
+                        handleContinueWriting();
+                        return;
+                    }
+                    document.execCommand(command, false, value);
+                    editor.focus();
+                    updateToolbarState();
+                });
+
+                editorToolbar.addEventListener('change', (e) => {
+                    const select = e.target.closest('select');
+                    if (!select) return;
+                    const command = select.dataset.command;
+                    const value = select.value;
+                    document.execCommand(command, false, value);
+                    editor.focus();
+                });
+            }
+            
+            if(chatSend) chatSend.addEventListener('click', handleChatSend);
+            if(chatInput) {
+                chatInput.addEventListener('keyup', (e) => {
+                    if (e.key === 'Enter') handleChatSend();
+                });
+            }
+            
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    tabs.forEach(t => t.classList.remove('active'));
+                    tabPanels.forEach(p => p.classList.add('hidden'));
+                    tab.classList.add('active');
+                    const target = document.getElementById(tab.dataset.tab);
+                    if(target) target.classList.remove('hidden');
+                });
+            });
+
+            // --- Core Functions ---
+            
+            function updateSettingsUI() {
+                if(!ollamaSettingsDiv || !geminiSettingsDiv) return;
+                
+                if (settings.provider === 'ollama') {
+                    ollamaSettingsDiv.classList.remove('hidden');
+                    geminiSettingsDiv.classList.add('hidden');
+                } else {
+                    ollamaSettingsDiv.classList.add('hidden');
+                    geminiSettingsDiv.classList.remove('hidden');
+                }
+            }
+
+            function loadContent() {
+                const savedContent = localStorage.getItem('sciwrite-content');
+                if (savedContent) {
+                    editor.innerHTML = savedContent;
+                    isPristine = false;
+                } else {
+                    editor.innerHTML = articleTemplate;
+                    isPristine = true;
+                }
+            }
+
+            function saveContent() {
+                localStorage.setItem('sciwrite-content', editor.innerHTML);
+                showMessage("Document saved to browser cache.", true);
+            }
+            
+            // --- Import Functionality ---
+            function handleFileImport(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                
+                const fileName = file.name;
+                const fileExt = fileName.split('.').pop().toLowerCase();
+                
+                // Confirm overwrite
+                if (!confirm(`Importing "${fileName}" will overwrite your current document content. Do you want to proceed?`)) {
+                    fileInput.value = ''; // Reset input
+                    return;
+                }
+                
+                showMessage(`Importing ${fileName}...`, false);
+                
+                if (fileExt === 'json') {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        try {
+                            const project = JSON.parse(e.target.result);
+                            if (project.content) editor.innerHTML = project.content;
+                            if (project.references) {
+                                references = project.references;
+                                saveAndRenderRefs();
+                            }
+                            if (project.settings) {
+                                // Optionally restore settings
+                                // settings = { ...settings, ...project.settings };
+                            }
+                            isPristine = false;
+                            showMessage("Project loaded successfully!", true);
+                            updateTOC();
+                            updateWordCount();
+                        } catch (err) {
+                            console.error(err);
+                            showMessage("Error parsing project file.", false);
+                        }
+                    };
+                    reader.readAsText(file);
+                } else if (fileExt === 'docx') {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const arrayBuffer = e.target.result;
+                        mammoth.convertToHtml({arrayBuffer: arrayBuffer})
+                            .then(result => {
+                                editor.innerHTML = result.value;
+                                isPristine = false;
+                                showMessage("Document imported successfully!", true);
+                                updateTOC();
+                                updateWordCount();
+                            })
+                            .catch(err => {
+                                console.error(err);
+                                showMessage("Error converting Word document.", false);
+                            });
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else if (['txt', 'html', 'md'].includes(fileExt)) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        let content = e.target.result;
+                        
+                        // Simple Markdown Handling (Basic)
+                        if (fileExt === 'md') {
+                            // Convert standard headers to HTML headers for basic display
+                            content = content.replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                                             .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                                             .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                                             .replace(/\*\*(.*)\*\*/gim, '<b>$1</b>')
+                                             .replace(/\*(.*)\*/gim, '<i>$1</i>')
+                                             .replace(/\n/gim, '<br>');
+                        } else if (fileExt === 'txt') {
+                            content = content.replace(/\n/g, '<br>');
+                        }
+                        
+                        editor.innerHTML = content;
+                        isPristine = false;
+                        showMessage("Document imported successfully!", true);
+                        updateTOC();
+                        updateWordCount();
+                    };
+                    reader.readAsText(file);
+                } else {
+                    showMessage("Unsupported file type.", false);
+                }
+                
+                fileInput.value = ''; // Reset so same file can be selected again if needed
+            }
+
+            function updateTOC() {
+                if(!toc) return;
+                toc.innerHTML = '';
+                const headings = editor.querySelectorAll('h1, h2, h3');
+                if (headings.length === 0) {
+                    toc.innerHTML = '<p class="text-gray-500 italic text-sm">No headings found.</p>';
+                    return;
+                }
+                headings.forEach(h => {
+                    if (!h.id) h.id = `heading-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+                    const link = document.createElement('a');
+                    link.href = `#${h.id}`;
+                    link.textContent = h.textContent;
+                    link.className = 'block text-blue-700 hover:underline truncate';
+                    if (h.tagName === 'H2') link.className += ' ml-4';
+                    else if (h.tagName === 'H3') link.className += ' ml-8';
+                    link.onclick = (e) => {
+                        e.preventDefault();
+                        h.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    };
+                    toc.appendChild(link);
+                });
+            }
+
+            function handleTextSelection(e) {
+                const selection = window.getSelection();
+                if (selection.rangeCount > 0) {
+                    currentSelectionRange = selection.getRangeAt(0).cloneRange();
+                    const text = selection.toString().trim();
+                    if (text.length > 5 && e.type === 'mouseup') {
+                        if(aiPopup) {
+                            const rect = currentSelectionRange.getBoundingClientRect();
+                            aiPopup.style.left = `${rect.left + window.scrollX}px`;
+                            aiPopup.style.top = `${rect.bottom + window.scrollY + 5}px`;
+                            aiPopup.style.display = 'flex';
+                        }
+                    } else if (e.type !== 'mouseup') {
+                         if(aiPopup) aiPopup.style.display = 'none';
+                    }
+                } else {
+                    if(aiPopup) aiPopup.style.display = 'none';
+                }
+            }
+            
+            function updateToolbarState() {
+                if(!editorToolbar) return;
+                const commands = ['bold', 'italic', 'underline', 'insertUnorderedList', 'insertOrderedList'];
+                commands.forEach(command => {
+                    const button = editorToolbar.querySelector(`button[data-command="${command}"]`);
+                    if (!button) return;
+                    if (document.queryCommandState(command)) button.classList.add('active');
+                    else button.classList.remove('active');
+                });
+                
+                // Block style buttons
+                editorToolbar.querySelectorAll('button[data-command="formatBlock"]').forEach(button => button.classList.remove('active'));
+                let blockTag = document.queryCommandValue('formatBlock');
+                if (blockTag) {
+                    const activeButton = editorToolbar.querySelector(`button[data-value="${blockTag.toUpperCase()}"]`);
+                    if (activeButton) activeButton.classList.add('active');
+                } else {
+                    const pButton = editorToolbar.querySelector('button[data-value="P"]');
+                    if (pButton) pButton.classList.add('active');
+                }
+                
+                // Font Family Dropdown State
+                const fontName = document.queryCommandValue('fontName');
+                const fontSelect = editorToolbar.querySelector('select[data-command="fontName"]');
+                if (fontSelect && fontName) {
+                    const strippedName = fontName.replace(/['"]/g, '');
+                    fontSelect.value = strippedName;
+                }
+
+                // Font Size Dropdown State
+                const fontSize = document.queryCommandValue('fontSize');
+                const sizeSelect = editorToolbar.querySelector('select[data-command="fontSize"]');
+                if (sizeSelect && fontSize) {
+                    sizeSelect.value = fontSize;
+                }
+            }
+
+            function updateWordCount() {
+                if(!wordCountEl) return;
+                const text = editor.innerText || editor.textContent;
+                const words = text.trim().split(/\s+/).filter(Boolean);
+                wordCountEl.textContent = `Word count: ${words.length}`;
+            }
+
+            function showMessage(msg, isSuccess, duration = 3000) {
+                if(!messageBox) return;
+                messageBox.textContent = msg;
+                messageBox.className = isSuccess ? 'bg-green-600 text-white' : 'bg-gray-800 text-white';
+                messageBox.style.bottom = '20px';
+                setTimeout(() => { messageBox.style.bottom = '-100px'; }, duration);
+            }
+
+            // --- Export Functions ---
+            
+            function downloadFile(filename, content, type) {
+                const blob = new Blob([content], { type: type });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+
+            function exportAsTxt() {
+                const content = editor.innerText;
+                downloadFile('document.txt', content, 'text/plain');
+                showMessage("Exported as .txt successfully!", true);
+            }
+
+            function exportAsHtml() {
+                const content = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>${document.title}</title></head>
+<body>${editor.innerHTML}</body>
+</html>`;
+                downloadFile('document.html', content, 'text/html');
+                showMessage("Exported as .html successfully!", true);
+            }
+
+            function exportAsMd() {
+                let content = editor.innerHTML;
+                
+                // Basic HTML to Markdown conversion
+                content = content
+                    .replace(/<h1[^>]*>(.*?)<\/h1>/gim, '# $1\n\n')
+                    .replace(/<h2[^>]*>(.*?)<\/h2>/gim, '## $1\n\n')
+                    .replace(/<h3[^>]*>(.*?)<\/h3>/gim, '### $1\n\n')
+                    .replace(/<strong[^>]*>(.*?)<\/strong>/gim, '**$1**')
+                    .replace(/<b[^>]*>(.*?)<\/b>/gim, '**$1**')
+                    .replace(/<em[^>]*>(.*?)<\/em>/gim, '*$1*')
+                    .replace(/<i[^>]*>(.*?)<\/i>/gim, '*$1*')
+                    .replace(/<p[^>]*>(.*?)<\/p>/gim, '$1\n\n')
+                    .replace(/<br\s*\/?>/gim, '\n')
+                    .replace(/<li[^>]*>(.*?)<\/li>/gim, '* $1\n')
+                    .replace(/<ul[^>]*>/gim, '')
+                    .replace(/<\/ul>/gim, '\n')
+                    .replace(/<ol[^>]*>/gim, '')
+                    .replace(/<\/ol>/gim, '\n')
+                    // Cleanup remaining tags
+                    .replace(/<[^>]+>/gim, '')
+                    // Decode entities roughly
+                    .replace(/&nbsp;/g, ' ')
+                    .replace(/&amp;/g, '&')
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>');
+
+                downloadFile('document.md', content, 'text/markdown');
+                showMessage("Exported as .md successfully!", true);
+            }
+
+            function exportAsWord() {
+                showMessage("Exporting to Word...", false);
+                try {
+                    const header = `<h1 style="font-size: 24pt; font-family: 'Times New Roman', Times, serif;">${document.title}</h1>`;
+                    const content = editor.innerHTML;
+                    const blob = htmlDocx.asBlob(header + content);
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = 'document.docx';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    showMessage("Exported as .docx successfully!", true);
+                } catch (error) {
+                    console.error("Error exporting to Word:", error);
+                    showMessage("Error exporting to Word.", false);
+                }
+            }
+
+            function exportAsPdf() {
+                showMessage("Generating PDF...", false);
+                const editorToPrint = document.getElementById('editor');
+                const originalShadow = editorToPrint.style.boxShadow;
+                editorToPrint.style.boxShadow = 'none';
+                html2canvas(editorToPrint, {
+                    scale: 2, useCORS: true, logging: false,
+                    onclone: (clonedDoc) => {
+                        const clonedEditor = clonedDoc.getElementById('editor');
+                        clonedEditor.style.overflow = 'visible';
+                        clonedEditor.style.minHeight = 'auto';
+                        clonedEditor.style.boxShadow = 'none';
+                    }
+                }).then(canvas => {
+                    editorToPrint.style.boxShadow = originalShadow;
+                    const imgData = canvas.toDataURL('image/png');
+                    const imgWidth = 210; 
+                    const pageHeight = 295; 
+                    const imgHeight = canvas.height * imgWidth / canvas.width;
+                    let heightLeft = imgHeight;
+                    const doc = new jsPDF('p', 'mm', 'a4');
+                    let position = 0;
+                    doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+                    heightLeft -= pageHeight;
+                    while (heightLeft >= 0) {
+                        position = heightLeft - imgHeight;
+                        doc.addPage();
+                        doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+                        heightLeft -= pageHeight;
+                    }
+                    doc.save('document.pdf');
+                    showMessage("Exported as .pdf successfully!", true);
+                }).catch(error => {
+                    editorToPrint.style.boxShadow = originalShadow;
+                    console.error("Error exporting to PDF:", error);
+                    showMessage("Error exporting to PDF.", false);
+                });
+            }
+            
+            function exportAsJson() {
+                const projectData = {
+                    content: editor.innerHTML,
+                    references: references,
+                    title: document.title,
+                    savedAt: new Date().toISOString()
+                };
+                const jsonString = JSON.stringify(projectData, null, 2);
+                downloadFile('project.json', jsonString, 'application/json');
+                showMessage("Project saved as .json", true);
+            }
+
+            // --- Improved Reference Management ---
+
+            function loadReferences() {
+                const savedRefs = localStorage.getItem('sciwrite-refs');
+                if (savedRefs) {
+                    references = JSON.parse(savedRefs);
+                    renderRefList();
+                }
+            }
+
+            function addReference() {
+                const text = newRefTextInput.value.trim();
+                if (!text) {
+                    showMessage("Citation text cannot be empty.", false);
+                    return;
+                }
+                
+                const newId = Date.now(); 
+                let refData = {
+                    id: newId,
+                    text: text,
+                    author: "Unknown",
+                    year: "n.d.",
+                    title: "",
+                    source: "manual"
+                };
+
+                // --- SMART PARSING LOGIC ---
+
+                // 1. Check for BibTeX (@article{...)
+                if (text.startsWith('@')) {
+                    refData = parseBibTeX(text, newId);
+                    showMessage("Detected BibTeX format.", true);
+                } 
+                // 2. Check for NBIB / RIS (Look for tags like "PMID-" or "TI  -")
+                else if (text.match(/^(PMID|TI|AU|DP|AB)  ?-/m)) {
+                    refData = parseNBIB(text, newId);
+                    showMessage("Detected NBIB/PubMed format.", true);
+                }
+                // 3. Fallback to Plain Text
+                else {
+                    // Try to extract Year (4 digits)
+                    const yearMatch = text.match(/\b(19|20)\d{2}\b/);
+                    if (yearMatch) refData.year = yearMatch[0];
+
+                    // Try to extract Author (First chunk before punctuation)
+                    const authorMatch = text.match(/^([^,(.]+)/);
+                    if (authorMatch) {
+                        let auth = authorMatch[1].trim();
+                        if (auth.length > 25) auth = auth.substring(0, 25) + "...";
+                        refData.author = auth;
+                    }
+                }
+                
+                references.push(refData);
+                newRefTextInput.value = '';
+                saveAndRenderRefs();
+                // showMessage called inside parsers for specific feedback, or here for generic
+                if (refData.source === 'manual') showMessage("Reference stored. Click 'Insert' to add to text.", true);
+            }
+
+            // --- Parsers ---
+
+            function parseBibTeX(bib, id) {
+                // Simple regex parser for BibTeX fields
+                const extract = (key) => {
+                    const match = bib.match(new RegExp(`${key}\\s*=\\s*[{"'](.+?)[}"']`, 'i'));
+                    return match ? match[1] : null;
+                };
+
+                const author = extract('author') || "Unknown";
+                const year = extract('year') || extract('date') || "n.d.";
+                const title = extract('title') || "Untitled";
+                const journal = extract('journal') || extract('booktitle') || "";
+                const volume = extract('volume') || "";
+                const pages = extract('pages') || "";
+                
+                // Clean up author (get first last name)
+                let shortAuthor = author.split(',')[0].trim();
+                if (author.includes('and')) shortAuthor += " et al.";
+
+                // Store raw data for dynamic rendering
+                return {
+                    id: id,
+                    text: bib, // Fallback
+                    author: shortAuthor,
+                    fullAuthors: author,
+                    year: year,
+                    title: title,
+                    journal: journal,
+                    volume: volume,
+                    pages: pages,
+                    source: 'bibtex',
+                    rawData: bib
+                };
+            }
+
+            function parseNBIB(nbib, id) {
+                // Helper to get lines starting with tag
+                const getLines = (tag) => {
+                    const regex = new RegExp(`^${tag}\\s*-\\s*(.*)$`, 'gm');
+                    let matches = [];
+                    let match;
+                    while ((match = regex.exec(nbib)) !== null) {
+                        matches.push(match[1]);
+                    }
+                    return matches;
+                };
+
+                const title = getLines('TI')[0] || "Untitled";
+                const authors = getLines('AU');
+                const date = getLines('DP')[0] || "n.d."; 
+                const journal = getLines('TA')[0] || getLines('JT')[0] || ""; 
+                const volume = getLines('VI')[0] || "";
+                const pages = getLines('PG')[0] || "";
+
+                // Extract Year
+                const yearMatch = date.match(/\b(19|20)\d{2}\b/);
+                const year = yearMatch ? yearMatch[0] : date;
+
+                // Format Author
+                let authorStr = "Unknown";
+                let shortAuthor = "Unknown";
+                
+                if (authors.length > 0) {
+                    authorStr = authors.join(', ');
+                    shortAuthor = authors[0];
+                    if (authors.length > 1) shortAuthor += " et al.";
+                }
+
+                return {
+                    id: id,
+                    text: nbib, // Fallback
+                    author: shortAuthor,
+                    fullAuthors: authorStr,
+                    year: year,
+                    title: title,
+                    journal: journal,
+                    volume: volume,
+                    pages: pages,
+                    source: 'nbib',
+                    rawData: nbib
+                };
+            }
+
+            // --- Dynamic Citation Renderer ---
+            function formatReference(ref, style) {
+                // If manual text (no structured data), just return the text
+                if (ref.source === 'manual') return ref.text;
+
+                const a = ref.fullAuthors || ref.author;
+                const t = ref.title;
+                const j = ref.journal;
+                const y = ref.year;
+                const v = ref.volume ? `, vol. ${ref.volume}` : '';
+                const p = ref.pages ? `, pp. ${ref.pages}` : '';
+
+                // Simple style rules
+                if (style === 'ieee') {
+                    // J. Smith, "Title," Journal, vol. 1, 2023.
+                    return `${a}, "${t}," <i>${j}</i>${v}${p}, ${y}.`;
+                } 
+                else if (style === 'mla') {
+                    // Smith, John. "Title." Journal vol. 1 (2023).
+                    return `${a}. "${t}." <i>${j}</i>${v} (${y})${p}.`;
+                } 
+                else if (style === 'vancouver' || style === 'nlm' || style === 'ama') {
+                    // Smith J. Title. Journal. 2023;1:10-12.
+                    return `${a}. ${t}. ${j}. ${y}${v ? ';' + ref.volume : ''}${ref.pages ? ':' + ref.pages : ''}.`;
+                } 
+                else {
+                    // APA Default: Smith, J. (2023). Title. Journal, 1, 10-12.
+                    return `${a} (${y}). ${t}. <i>${j}</i>${v}${p}.`;
+                }
+            }
+
+            function insertCitationMarker(id) {
+                const ref = references.find(r => r.id == id);
+                if (!ref) return;
+
+                const style = settings.citationStyle;
+                let displayText = `[?]`;
+
+                if (['ieee', 'vancouver', 'nlm', 'ama'].includes(style)) {
+                    displayText = `[#]`; 
+                } else {
+                    displayText = `(${ref.author}, ${ref.year})`;
+                }
+
+                const marker = document.createElement('span');
+                marker.className = 'citation-marker';
+                marker.contentEditable = 'false';
+                marker.textContent = displayText;
+                marker.dataset.refInternalId = id; 
+                
+                const sel = window.getSelection();
+                if (sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    range.deleteContents();
+                    range.insertNode(marker);
+                    const newRange = document.createRange();
+                    newRange.setStartAfter(marker);
+                    newRange.setEndAfter(marker);
+                    sel.removeAllRanges();
+                    sel.addRange(newRange);
+                } else {
+                    editor.appendChild(marker);
+                }
+                isPristine = false;
+            }
+
+            function renderRefList() {
+                if(!refList) return;
+                refList.innerHTML = '';
+                if (references.length === 0) {
+                    refList.innerHTML = '<li class="text-gray-500 italic text-sm">No references stored.</li>';
+                    return;
+                }
+                references.forEach(ref => {
+                    const li = document.createElement('li');
+                    li.className = 'text-sm bg-white p-2 border border-gray-200 rounded-md flex justify-between items-start gap-2';
+                    
+                    // Ref Content
+                    li.innerHTML = `
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="font-bold text-gray-800 text-xs bg-gray-100 px-1 rounded">${ref.author}</span>
+                                <span class="text-gray-500 text-xs">${ref.year}</span>
+                            </div>
+                            <div class="text-gray-600 text-xs line-clamp-2" title="${ref.text}">${ref.text}</div>
+                        </div>
+                        <div class="flex flex-col gap-1">
+                            <button data-id="${ref.id}" class="insert-ref-btn bg-blue-50 text-blue-600 p-1 rounded hover:bg-blue-100" title="Insert into text">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                            </button>
+                            <button data-id="${ref.id}" class="edit-ref-btn bg-gray-50 text-gray-600 p-1 rounded hover:bg-gray-100" title="Edit Reference">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                            </button>
+                            <button data-id="${ref.id}" class="delete-ref-btn bg-red-50 text-red-600 p-1 rounded hover:bg-red-100" title="Delete Reference">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
+                        </div>
+                    `;
+                    refList.appendChild(li);
+                });
+                // No listeners attached here anymore; using delegation on refList
+            }
+            
+            function openEditModal(id) {
+                const ref = references.find(r => String(r.id) === String(id));
+                if (!ref) return;
+                
+                editingRefId = id;
+                editRefAuthor.value = ref.author;
+                editRefYear.value = ref.year;
+                editRefText.value = ref.text;
+                
+                editRefModal.classList.remove('hidden');
+            }
+
+            function saveEditedReference() {
+                if (!editingRefId) return;
+                
+                // Use loose equality (==) or String conversion to match ID types
+                const refIndex = references.findIndex(r => String(r.id) === String(editingRefId));
+                if (refIndex > -1) {
+                    references[refIndex].author = editRefAuthor.value.trim();
+                    references[refIndex].year = editRefYear.value.trim();
+                    references[refIndex].text = editRefText.value.trim();
+                    
+                    saveAndRenderRefs();
+                    editRefModal.classList.add('hidden');
+                    editingRefId = null;
+                    showMessage("Reference updated.", true);
+                }
+            }
+
+            function promptDeleteReference(id) {
+                deletingRefId = id;
+                deleteConfirmModal.classList.remove('hidden');
+            }
+
+            function confirmDeleteReference() {
+                if(!deletingRefId) return;
+                
+                // Convert both to strings to ensure matching works regardless of type
+                const initialLength = references.length;
+                references = references.filter(r => String(r.id) !== String(deletingRefId));
+                
+                if (references.length < initialLength) {
+                    saveAndRenderRefs();
+                    showMessage("Reference deleted.", true);
+                } else {
+                    console.error("Delete failed: ID not found", deletingRefId);
+                    showMessage("Error deleting reference.", false);
+                }
+                
+                deleteConfirmModal.classList.add('hidden');
+                deletingRefId = null;
+            }
+            
+            function generateReferenceList() {
+                const style = settings.citationStyle;
+                const isNumbered = ['ieee', 'vancouver', 'nlm', 'ama'].includes(style);
+                const isParenthetical = !isNumbered;
+
+                const oldSection = editor.querySelector('#bibliography-section');
+                if (oldSection) oldSection.remove();
+
+                const markers = Array.from(editor.querySelectorAll('.citation-marker'));
+                
+                if (markers.length === 0) {
+                    showMessage("No citations found in text to generate bibliography.", false);
+                    return;
+                }
+
+                let usedRefs = [];
+                let displayOrderMap = new Map(); 
+                let counter = 1;
+
+                markers.forEach(marker => {
+                    const id = marker.dataset.refInternalId;
+                    const ref = references.find(r => r.id == id);
+                    if (!ref) {
+                        marker.textContent = "[Unknown Ref]";
+                        return;
+                    }
+
+                    // Reset custom styles
+                    marker.style.verticalAlign = '';
+                    marker.style.fontSize = '';
+                    marker.style.position = '';
+
+                    if (isNumbered) {
+                        let num = displayOrderMap.get(id);
+                        if (!num) {
+                            num = counter++;
+                            displayOrderMap.set(id, num);
+                            usedRefs.push({ ...ref, order: num });
+                        }
+                        
+                        if (style === 'vancouver') {
+                            marker.textContent = `(${num})`;
+                        } else if (style === 'ama') {
+                            marker.textContent = `${num}`;
+                            marker.style.verticalAlign = 'super';
+                            marker.style.fontSize = '0.7em';
+                            marker.style.lineHeight = '0';
+                        } else {
+                            // IEEE / NLM
+                            marker.textContent = `[${num}]`; 
+                        }
+                        
+                    } else {
+                        if (!displayOrderMap.has(id)) {
+                            displayOrderMap.set(id, true);
+                            usedRefs.push(ref);
+                        }
+                        
+                        if (style === 'mla') marker.textContent = `(${ref.author})`;
+                        else if (style === 'harvard') marker.textContent = `(${ref.author} ${ref.year})`;
+                        else marker.textContent = `(${ref.author}, ${ref.year})`; 
+                    }
+                });
+
+                if (isNumbered) {
+                    usedRefs.sort((a, b) => a.order - b.order);
+                } else {
+                    usedRefs.sort((a, b) => (a.fullAuthors || a.author).localeCompare(b.fullAuthors || b.author));
+                }
+
+                const bibSection = document.createElement('div');
+                bibSection.id = "bibliography-section";
+                
+                const heading = document.createElement('h2');
+                heading.textContent = "References";
+                bibSection.appendChild(heading);
+
+                const listTag = isNumbered ? 'ol' : 'ul';
+                const list = document.createElement(listTag);
+                if (isNumbered) {
+                    list.style.listStyleType = 'decimal';
+                    list.style.paddingLeft = '1.5rem';
+                } else {
+                    list.style.listStyleType = 'none';
+                    list.style.paddingLeft = '0';
+                }
+
+                usedRefs.forEach(ref => {
+                    const li = document.createElement('li');
+                    
+                    // --- DYNAMIC RENDERING CALL ---
+                    li.innerHTML = formatReference(ref, style); // Use innerHTML to support italics
+                    
+                    if (isParenthetical) {
+                        li.style.paddingLeft = '1rem';
+                        li.style.textIndent = '-1rem'; 
+                        li.style.marginBottom = '0.75rem';
+                    }
+                    list.appendChild(li);
+                });
+
+                bibSection.appendChild(list);
+                editor.appendChild(bibSection);
+                
+                showMessage(`Bibliography generated (${style.toUpperCase()}).`, true);
+                isPristine = false;
+                updateTOC(); 
+            }
+
+            function saveAndRenderRefs() {
+                renderRefList();
+                localStorage.setItem('sciwrite-refs', JSON.stringify(references));
+            }
+
+            // --- AI Logic (Ollama & Gemini) ---
+            async function loadOllamaModels() {
+                if(!ollamaModelInput) return;
+                const tagsUrl = `${settings.url}/api/tags`;
+                ollamaModelInput.innerHTML = '<option value="">Loading models...</option>';
+                try {
+                    const response = await fetch(tagsUrl);
+                    if (!response.ok) throw new Error("Server error");
+                    const data = await response.json();
+                    if (data.models && data.models.length > 0) {
+                        ollamaModelInput.innerHTML = '';
+                        data.models.forEach(model => {
+                            const option = document.createElement('option');
+                            option.value = model.name;
+                            option.textContent = model.name;
+                            ollamaModelInput.appendChild(option);
+                        });
+                        ollamaModelInput.value = settings.model;
+                        if (!ollamaModelInput.value) {
+                             ollamaModelInput.value = data.models[0].name;
+                             settings.model = data.models[0].name;
+                        }
+                    } else { ollamaModelInput.innerHTML = '<option value="">No models</option>'; }
+                } catch (e) { 
+                    ollamaModelInput.innerHTML = '<option value="">Error loading</option>'; 
+                }
+            }
+
+            async function callAI(text, action, callback) {
+                if (settings.provider === 'ollama') {
+                    if (!settings.url || !settings.model) { showMessage("Check Settings", false); return; }
+                } else if (settings.provider === 'gemini') {
+                    if (!settings.geminiKey) { showMessage("Enter Gemini API Key in Settings", false); return; }
+                }
+
+                showMessage("Thinking...", false);
+                
+                let sysPrompt = "You are a helpful academic writing assistant. Respond with ONLY the requested text, no chatter.";
+                let userPrompt = text;
+                
+                // Construct prompts based on action
+                if (action === 'rewrite') userPrompt = `Rewrite this text to be more academic and clear: ${text}`;
+                else if (action === 'expand') userPrompt = `Expand on this text with more detail: ${text}`;
+                else if (action === 'summarize') userPrompt = `Summarize this text: ${text}`;
+                else if (action === 'fix') userPrompt = `Fix grammar and spelling: ${text}`;
+                else if (action === 'continue') {
+                     sysPrompt = "You are a writing assistant. Continue the text naturally. Output ONLY the new text.";
+                     userPrompt = `Context: ${text}`;
+                } else if (action === 'chat') {
+                     sysPrompt = "You are an AI assistant helping with a document. Answer questions based on the provided document context.";
+                     userPrompt = `Document Content: ${editor.innerText}\n\nUser Question: ${text}`;
+                }
+
+                try {
+                    let responseText = "";
+                    
+                    if (settings.provider === 'ollama') {
+                        // Ollama API Call
+                        const res = await fetch(`${settings.url}/api/generate`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ 
+                                model: settings.model, 
+                                prompt: userPrompt, 
+                                system: sysPrompt, 
+                                stream: false 
+                            })
+                        });
+                        if (!res.ok) throw new Error("Ollama Error");
+                        const data = await res.json();
+                        responseText = data.response.trim();
+                        
+                    } else if (settings.provider === 'gemini') {
+                        // Gemini API Call
+                        // We put system prompt into user prompt for simpler models, or use systemInstruction if supported
+                        // For generic compatibility, we'll prepend system instruction.
+                        const finalPrompt = `${sysPrompt}\n\n${userPrompt}`;
+                        const model = "gemini-1.5-flash"; // Defaulting to a fast, reliable model
+                        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.geminiKey}`;
+                        
+                        const res = await fetch(url, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                contents: [{
+                                    parts: [{ text: finalPrompt }]
+                                }]
+                            })
+                        });
+                        
+                        if (!res.ok) {
+                            const errData = await res.json();
+                            throw new Error(errData.error?.message || "Gemini Error");
+                        }
+                        const data = await res.json();
+                        responseText = data.candidates[0].content.parts[0].text.trim();
+                    }
+
+                    // Handle Success
+                    if(callback) callback(responseText);
+                    else if (currentSelectionRange) {
+                        const sel = window.getSelection();
+                        sel.removeAllRanges();
+                        sel.addRange(currentSelectionRange);
+                        document.execCommand('insertText', false, responseText);
+                        aiPopup.style.display = 'none';
+                        isPristine = false;
+                    }
+                    showMessage("Done!", true);
+
+                } catch(e) {
+                    console.error(e);
+                    showMessage(`Error: ${e.message}`, false);
+                    if(callback) callback(`Error: ${e.message}`);
+                }
+            }
+            
+            function handleContinueWriting() {
+                const sel = window.getSelection();
+                if (!sel.rangeCount) return;
+                const range = sel.getRangeAt(0);
+                const startRange = document.createRange();
+                startRange.selectNodeContents(editor);
+                startRange.setEnd(range.startContainer, range.startOffset);
+                const context = startRange.toString().split(/\s+/).slice(-300).join(' ');
+                callAI(context, "continue", (resp) => {
+                    document.execCommand('insertText', false, resp);
+                });
+            }
+
+            function handleChatSend() {
+                if(!chatInput) return;
+                const q = chatInput.value.trim();
+                if (!q) return;
+                addChatMessage("User", q);
+                chatInput.value = '';
+                callAI(q, "chat", (resp) => addChatMessage("AI", resp));
+            }
+            
+            function addChatMessage(sender, msg) {
+                if(!chatMessages) return;
+                const div = document.createElement('div');
+                div.className = "mb-2 text-sm";
+                div.innerHTML = `<span class="font-bold ${sender==='User'?'text-blue-600':'text-green-600'}">${sender}:</span> ${msg}`;
+                chatMessages.appendChild(div);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+
+        });
+    </script>
+</body>
+</html>
